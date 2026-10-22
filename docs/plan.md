@@ -1,6 +1,6 @@
 # 分阶段实现与交付计划
 
-状态：整体设计已获审核，已按六项意见同步修订 [requirements.md](requirements.md)、[design.md](design.md)。P0–P3 已分别提交；用户已授权连续完成 P4、核心 P5、P6，各阶段验证后分别本地提交。增强验证后置。
+状态：整体设计已获审核，已按六项意见同步修订 [requirements.md](requirements.md)、[design.md](design.md)。P0–P4 已分别提交；核心 P5 验证通过，本地提交后继续 P6。增强验证后置。
 
 ## 1. 工作原则与审核门槛
 
@@ -25,7 +25,7 @@
 | P1 已提交 | Maven/Spring Boot 骨架、锁定版本、schema.sql、实体/Repository、基础 DTO/校验/异常、.gitignore | Java 17 构建；空目录建表；同一文件库二次启动；DDL 与映射一致；非法输入映射单测 | `267f66c build: initialize service and file-backed H2 schema` | 依赖选择及 DDL 说明对话；首次启动、二次启动输出截图 |
 | P2 已提交 | Vectorizer、CPU 模拟、Codec、Similarity、TopKSelector、算法说明与黄金样例 | 256 float；空向量；跨进程相同字节；余弦边界；堆对照完整排序 | `2ac315a feat: add deterministic vectorization and exact top-k primitives` | 算法权衡对话；关键黄金测试和 Top-K 对照结果 |
 | P3 文档接收与异步任务 | 提交/任务查询/文档查询接口；有界队列、worker、补扫、条件领取、原子发布；基本启动/停止恢复 | 提交不等待 CPU；四态可查；并发 ID 唯一；队列满补偿；重启恢复；失败原因可见 | `feat: persist and process document vectorization tasks` | 队列与 DB 一致性讨论；QUEUED→RUNNING→SUCCEEDED/FAILED 证据 |
-| P4 检索、失效与溯源 | 同步检索、渠道过滤、失效接口、原子计数；完整接口示例 | 仅有效就绪候选；精确排序；失效独立；最终 Top-K 计数；API 所有错误分支 | `feat: add search invalidation and document hit statistics` | 失效竞争/计数口径对话；API 正常流程截图 |
+| P4 已提交 | 同步检索、渠道过滤、失效接口、原子计数；完整接口示例 | 仅有效就绪候选；精确排序；失效独立；最终 Top-K 计数；API 所有错误分支 | `ddb0f05 feat: add exact search invalidation and hit accounting` | 失效竞争/计数口径对话；API 正常流程截图 |
 | P5 核心验收 / 增强验证 | 先核心并发/重启验证，再按必要性增加故障窗口和性能观察；不增加业务功能 | 核心：闭环、计数、过载、基本恢复、取消资源释放；增强不阻塞首次可运行闭环 | `test: verify concurrency overload and crash recovery`；如修复缺陷，按实际问题另提交 `fix: ...` | 失败测试→修复→通过的真实讨论与截图；保留原因，不能只存绿灯 |
 | P6 最终文档与打包 | README、接口说明、演示脚本、测试报告、AI 关键对话；仓库或干净压缩包 | 从干净 checkout 按 README 可启动；覆盖所有 R；Git 历史和证据完整；排除编译文件/日志 | `docs: add runnable guide and interview evidence` | 端到端演示、重启保留数据、最终验收结果 |
 
