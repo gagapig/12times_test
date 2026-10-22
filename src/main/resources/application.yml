@@ -1,0 +1,37 @@
+spring:
+  application:
+    name: vector-search
+  datasource:
+    url: jdbc:h2:file:${VECTOR_DB_PATH:./data/vector-search};DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0;LOCK_TIMEOUT=2000
+    username: sa
+    password: ""
+    hikari:
+      maximum-pool-size: 6
+      connection-timeout: 2000
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+      encoding: UTF-8
+      continue-on-error: false
+  jpa:
+    open-in-view: false
+    defer-datasource-initialization: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+      fail-on-trailing-tokens: true
+  h2:
+    console:
+      enabled: false
+server:
+  address: 127.0.0.1
+  port: 8080
+  shutdown: graceful
+  error:
+    include-message: never
+    include-stacktrace: never

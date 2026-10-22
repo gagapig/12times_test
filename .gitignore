@@ -1,0 +1,12 @@
+target/
+data/
+logs/
+*.log
+*.mv.db
+*.trace.db
+*.lock.db
+.DS_Store
+.idea/
+*.iml
+.firecrawl/
+.local-tools/
