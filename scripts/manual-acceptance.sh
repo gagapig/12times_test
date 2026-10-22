@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Start the service first. Override BASE_URL to test a different local port.
 BASE_URL=${BASE_URL:-http://127.0.0.1:8080}
-RUN_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+RUN_ID=$(python3 -c 'import uuid; print(uuid.uuid4())')
 A="accept-${RUN_ID}-a"
 B="accept-${RUN_ID}-b"
 C="accept-${RUN_ID}-c"

@@ -1,43 +1,81 @@
 # 文本向量化与检索笔试项目
 
-当前进度：**核心 P5 验证通过**。P1–P4 已分别提交；当前服务支持文档提交、异步向量化、任务与文档查询、同步检索、逻辑失效及逐篇命中计数。最终交付整理仍属 P6。
+单机、单实例的 Spring Boot 服务：提交文档后异步生成模拟向量；同步检索返回精确 Top-K，并记录最终命中的次数；文档可逻辑失效。全部功能使用 Java 17、Maven、H2 文件库和 Spring Data JPA，不调用模型 API，也不依赖 MQ 或专用向量数据库。
 
-## 运行前提与命令
+## 构建与启动
 
-- Java 17；Maven 3.6.3 及以上。
-- 使用可写的当前目录，或通过 `VECTOR_DB_PATH` 指定一个可写的 H2 文件前缀路径（不带 `.mv.db`）。默认 `./data/vector-search`，相对于启动进程的工作目录。
-- 单实例独占该文件库；不要同时启动两个服务指向同一路径。
+需要 Java 17、Maven 3.6.3 或以上版本。请从项目根目录运行：
 
 ```sh
-mvn test
-mvn package
+java -version
+mvn -B clean package
 java -jar target/vector-search-0.0.1-SNAPSHOT.jar
 ```
 
-服务默认监听 `127.0.0.1:8080`。测试结果会在本轮完成后单独报告；此 README 中的命令是复现方法，不表示所有后续业务功能已完成。
+默认仅监听 `127.0.0.1:8080`。默认数据库前缀是 `./data/vector-search`，实际文件为 `data/vector-search.mv.db`；仓库保留空的 `data/` 目录，运行数据被 Git 忽略。重启时在同一工作目录启动即可复用数据。需要换路径或端口时，例如：
 
-## 建表与数据位置
+```sh
+VECTOR_DB_PATH=/tmp/vector-search-demo java -jar target/vector-search-0.0.1-SNAPSHOT.jar --server.port=18080
+```
 
-`src/main/resources/schema.sql` 是建表依据。每次启动都会运行幂等建表语句，然后 Hibernate 只做 `validate`；旧表结构不兼容时应启动失败，当前没有自动迁移。数据文件默认位于 `./data/vector-search.mv.db`，已被 `.gitignore` 排除；重新启动必须沿用相同工作目录或指定相同 `VECTOR_DB_PATH`。
+同一文件库只允许一个服务实例。启动时执行幂等的 `schema.sql` 建表，Hibernate 只校验映射；旧库结构不兼容时启动失败，本项目未提供自动迁移。
 
-P1 的持久化类有文档、任务和四种任务状态映射；测试使用临时文件库与测试专用进程写入样例，生产服务不会自动生成示例业务数据。
+## 可复制的 HTTP 演示
 
-## 文档任务接口（P3）
+在另一个终端运行以下命令，先提交，再查询任务直到 `SUCCEEDED`，然后检索、失效并复查。每次使用新 ID，避免上一次演示留下的文档触发 409。
 
-`POST /api/documents` 接收 `documentId`、`text` 和可选 `channel`，成功返回 202、任务 ID 和 `Location`。同一文档 ID 重复提交返回 409；数据库积压达到上限返回 503。`GET /api/tasks/{taskId}` 查询四态及安全失败原因；`GET /api/documents/{documentId}`、`GET /api/documents/{documentId}/task` 查询文档及其任务；`GET /api/documents` 支持分页和渠道、失效、向量就绪、任务状态过滤。提交事务先保存文档与 QUEUED 任务，后台 worker 条件领取，完成时同事务发布向量及 SUCCEEDED。队列满时数据库中的 QUEUED 任务由周期扫描补调度；重启时未完成任务按执行次数上限恢复。默认固定 2 个 worker、有界队列，配置项见 [设计文档](docs/design.md)。
+```sh
+DEMO_ID="demo-$(date +%s)-$$"
+curl -sS -i -X POST http://127.0.0.1:8080/api/documents \
+  -H 'Content-Type: application/json' \
+  -d "{\"documentId\":\"$DEMO_ID\",\"text\":\"Java 后端\",\"channel\":\"招聘\"}"
 
-## 模拟向量算法（P2）
+curl -sS "http://127.0.0.1:8080/api/documents/$DEMO_ID/task"
+curl -sS "http://127.0.0.1:8080/api/documents/$DEMO_ID"
 
-`charhash-v1` 以 Unicode 字符及相邻字符对为特征，分别用 1、2 的权重累加到 SHA-256 首字节指定的 256 个桶，随后 L2 归一化为 float。空字符串的 256 项全部为正零。保存为固定 1,024 字节的大端二进制；余弦遇到零向量时定义为 0。Top-K 使用容量 K 的最小堆，分数同分时文档 ID 升序。CPU 工作模拟和向量值分离，同一原文的编码不受模拟轮数影响。该算法衡量字符重叠，不提供真实语义理解。
+curl -sS -X POST http://127.0.0.1:8080/api/search \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"Java 后端","topK":3,"channel":"招聘"}'
 
-## 检索与失效（P4）
+curl -sS -X PUT "http://127.0.0.1:8080/api/documents/$DEMO_ID/invalidation"
+curl -sS -X POST http://127.0.0.1:8080/api/search \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"Java 后端","topK":3,"channel":"招聘"}'
+```
 
-`POST /api/search` 接收 `text`、`topK`（1–100）及可选 `channel`；仅扫描已完成、未失效且渠道匹配的文档，精确排序后只给最终返回项累计 `hitCount`。空查询返回零分 Top-K，也累计命中。`PUT /api/documents/{documentId}/invalidation` 幂等标记失效；已失效文档不再参与之后开始的检索。可复制的本地演示见 [人工验收脚本](scripts/manual-acceptance.sh)。
+无需手动轮询和判断响应时，可运行 [人工验收脚本](scripts/manual-acceptance.sh)：
 
-## 设计与边界
+```sh
+bash scripts/manual-acceptance.sh
+# 改用 18080 端口：BASE_URL=http://127.0.0.1:18080 bash scripts/manual-acceptance.sh
+```
 
-- [需求和接口契约](docs/requirements.md)
-- [数据、并发和算法设计](docs/design.md)
-- [阶段计划与验收](docs/plan.md)
+脚本会创建唯一文档 ID，并自动检查异步完成、重复 ID 返回 409、中文渠道、空查询零分 Top-K、命中计数与失效排除；成功输出 `PASS`。需要 Python 3 和 `curl`。
 
-Git 提交按阶段保存设计、P1、P2、P3、P4 和核心 P5；P6 将整理最终交付。核心测试结果见 [实测记录](docs/core-validation.md)。
+## 接口与业务规则
+
+| 接口 | 用途 |
+| --- | --- |
+| `POST /api/documents` | 接收 `documentId`、`text`、可选 `channel`；202 返回任务 ID 和 `Location` |
+| `GET /api/tasks/{taskId}` | 查询 `QUEUED`、`RUNNING`、`SUCCEEDED`、`FAILED` 及失败原因 |
+| `GET /api/documents/{documentId}` | 查看原文、渠道、状态、时间、失效标记和命中次数 |
+| `GET /api/documents/{documentId}/task` | 按文档 ID 查询对应任务 |
+| `GET /api/documents` | 分页列表；支持 `channel`、`invalidated`、`vectorReady`、`taskStatus` 过滤 |
+| `POST /api/search` | `text`、`topK`（1–100）、可选 `channel`；返回相似度降序结果 |
+| `PUT /api/documents/{documentId}/invalidation` | 幂等逻辑失效，保留第一次失效时间 |
+
+`documentId` 唯一且不可覆盖；1–64 个 ASCII 字母、数字、下划线或连字符是本项目约定，不是题目指定格式。省略渠道时入库为 `default`；检索省略渠道时覆盖全部渠道，渠道允许中文。文本 `null` 被拒绝，空字符串合法。空查询得到零向量，仍按文档 ID 升序返回零分 Top-K 并计数。业务参数错误返回 400，重复 ID 返回 409，积压或暂不可用返回 503。完整字段、长度和异常约定见 [需求文档](docs/requirements.md)。
+
+## 实现思路和范围
+
+提交事务同时保存文档和 `QUEUED` 任务；固定 worker 从有界内存队列领取，数据库条件更新决定执行权。队列满或唤醒遗漏时，周期扫描数据库补调度。向量与 `SUCCEEDED` 状态在同一事务发布；启动时按最多三次执行的上限恢复未完成任务。算法失败写入安全原因，不无限重试。
+
+`charhash-v1` 把 Unicode 单字符与相邻字符对哈希到 256 个桶，L2 归一化后保存为 1,024 字节大端浮点数组。查询使用同一算法；余弦相似度遇到零向量定义为 0。检索按 ID 分批扫描合法候选，用容量 K 的堆得到精确排序；只对最终结果在一个事务中原子递增命中次数。单实例公平读写锁覆盖候选扫描和计数提交；失效及向量发布获取写锁。它易于解释，但检索期间会阻塞写入，且全量扫描不适合大库。
+
+服务只适合单实例、小型演示数据集。模拟向量衡量字符重叠，不是真实语义模型；没有分布式部署、共享缓存、物理删除、自动迁移或部署脚本。配置、事务边界、异常分类和已知限制见 [设计文档](docs/design.md)。
+
+## 验证与交付记录
+
+[核心验收实测记录](docs/core-validation.md)列出确定性算法、队列、过滤、失效、并发计数、回滚、取消资源释放、独立进程重启和一次真实进程中断恢复的测试。[干净目录交付复现记录](docs/delivery-verification.md)包含完整构建、默认路径启动、HTTP 演示和重启复查结果。`mvn -B clean package` 可复现 66 个测试；需在支持 Mockito JVM 附加的常规本地环境运行。真实关键 AI 对话节选及事后摘要保存在 [证据索引](docs/evidence/README.md)，两者分开标注，不含伪造截图。
+
+Git 历史按设计、P1、P2、P3、P4、核心 P5、P6 分阶段提交；可用 `git log --oneline` 检查。实施与后置验证范围见 [阶段计划](docs/plan.md)。
