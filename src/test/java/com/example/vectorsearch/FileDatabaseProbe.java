@@ -19,7 +19,7 @@ public class FileDatabaseProbe {
 
     public static void main(String[] args) {
         try (var context = new SpringApplicationBuilder(VectorSearchApplication.class)
-                .web(WebApplicationType.NONE).run("--spring.datasource.url=" + args[1])) {
+                .web(WebApplicationType.NONE).run("--spring.datasource.url=" + args[1], "--task.enabled=false")) {
             var jdbc = context.getBean(JdbcTemplate.class);
             if (args[0].equals("write")) {
                 // Fixture writes validate persistence only; these are not business implementations.

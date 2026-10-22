@@ -24,6 +24,7 @@ class PersistenceTest {
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry properties) {
         properties.add("spring.datasource.url", () -> "jdbc:h2:file:" + DB + ";DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0");
+        properties.add("task.enabled", () -> false);
     }
 
     @Autowired EntityManager em;
