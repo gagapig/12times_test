@@ -242,21 +242,29 @@ public class TaskEngine implements SmartLifecycle {
     }
 
     private void workerLoop() {
-        while (state != State.STOPPING) {
-            try {
-                if (!awaitClaimPermission()) break;
-                UUID taskId = queue.poll(500, TimeUnit.MILLISECONDS);
-                if (taskId == null) continue;
-                try { execute(taskId); }
-                finally {
-                    synchronized (scheduleMonitor) { scheduledIds.remove(taskId); }
-                    signalDispatch();
+        try {
+            while (state != State.STOPPING) {
+                try {
+                    if (!awaitClaimPermission()) break;
+                    UUID taskId = queue.poll(500, TimeUnit.MILLISECONDS);
+                    if (taskId == null) continue;
+                    try { execute(taskId); }
+                    finally {
+                        synchronized (scheduleMonitor) { scheduledIds.remove(taskId); }
+                        signalDispatch();
+                    }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (RuntimeException failure) {
+                    LOG.error("Worker loop failed; next task can still run", failure);
                 }
-            } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
-                break;
-            } catch (RuntimeException failure) {
-                LOG.error("Worker loop failed; next task can still run", failure);
+            }
+        } finally {
+            if (state != State.STOPPING) {
+                LOG.error("Worker exited unexpectedly; restart is required to recover RUNNING tasks");
+                setState(State.STOPPING);
+                signalDispatch();
             }
         }
     }

@@ -7,6 +7,7 @@ RUN_ID=$(python3 -c 'import uuid; print(uuid.uuid4())')
 A="accept-${RUN_ID}-a"
 B="accept-${RUN_ID}-b"
 C="accept-${RUN_ID}-c"
+CHANNEL="验收-${RUN_ID}"
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
 
@@ -40,15 +41,22 @@ wait_done() {
 }
 
 printf 'Submitting %s, %s, %s\n' "$A" "$B" "$C"
-request 202 POST /api/documents "{\"documentId\":\"$A\",\"text\":\"Java 后端\"}" > /dev/null
-request 202 POST /api/documents "{\"documentId\":\"$B\",\"text\":\"中文渠道\",\"channel\":\"招聘\"}" > /dev/null
-request 202 POST /api/documents "{\"documentId\":\"$C\",\"text\":\"\"}" > /dev/null
+request 202 POST /api/documents "{\"documentId\":\"$A\",\"text\":\"Java 后端\",\"channel\":\"$CHANNEL\"}" > /dev/null
+request 202 POST /api/documents "{\"documentId\":\"$B\",\"text\":\"默认渠道\"}" > /dev/null
+request 202 POST /api/documents "{\"documentId\":\"$C\",\"text\":\"\",\"channel\":\"$CHANNEL\"}" > /dev/null
 wait_done "$A"
 wait_done "$B"
 wait_done "$C"
 
 request 409 POST /api/documents "{\"documentId\":\"$A\",\"text\":\"duplicate\"}" > /dev/null
-request 200 POST /api/search '{"text":"","topK":2,"channel":"default"}' > "$WORK_DIR/search.json"
+request 200 GET "/api/documents/$B" > "$WORK_DIR/default.json"
+python3 - "$B" "$WORK_DIR/default.json" <<'PY'
+import json, sys
+document_id, path = sys.argv[1:]
+body = json.load(open(path, encoding="utf-8"))
+assert body["documentId"] == document_id and body["channel"] == "default", body
+PY
+request 200 POST /api/search "{\"text\":\"\",\"topK\":2,\"channel\":\"$CHANNEL\"}" > "$WORK_DIR/search.json"
 python3 - "$A" "$C" "$WORK_DIR/search.json" <<'PY'
 import json, sys
 a, c, path = sys.argv[1:]
@@ -59,7 +67,7 @@ assert all(hit["score"] == 0 for hit in body["results"]), body
 PY
 
 request 200 PUT "/api/documents/$A/invalidation" > "$WORK_DIR/invalidated.json"
-request 200 POST /api/search '{"text":"Java","topK":2,"channel":"default"}' > "$WORK_DIR/after.json"
+request 200 POST /api/search "{\"text\":\"Java\",\"topK\":2,\"channel\":\"$CHANNEL\"}" > "$WORK_DIR/after.json"
 request 200 GET "/api/documents/$A" > "$WORK_DIR/document.json"
 python3 - "$A" "$B" "$C" "$WORK_DIR/invalidated.json" "$WORK_DIR/after.json" "$WORK_DIR/document.json" <<'PY'
 import json, sys
