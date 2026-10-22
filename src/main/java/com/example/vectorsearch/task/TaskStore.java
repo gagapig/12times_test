@@ -2,6 +2,7 @@ package com.example.vectorsearch.task;
 
 import com.example.vectorsearch.api.*;
 import com.example.vectorsearch.persistence.*;
+import com.example.vectorsearch.vector.TopKSelector;
 import jakarta.persistence.EntityManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -12,6 +13,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Map;
+import java.util.HashMap;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -22,6 +25,7 @@ public class TaskStore {
     public record Claim(UUID taskId, String documentId, int attemptCount, String text) { }
     public record Cursor(Instant createdAt, UUID taskId) { }
     public record TaskState(TaskStatus status, int attemptCount, boolean vectorReady) { }
+    public record Candidate(String documentId, byte[] vectorBytes, String vectorVersion) { }
 
     private static final String COMMON_COLUMNS = "d.document_id, d.channel, d.submitted_at, "
             + "d.vector_completed_at, d.vector_ready, d.invalidated, d.invalidated_at, d.hit_count, "
@@ -168,6 +172,56 @@ public class TaskStore {
     public Optional<DocumentDetail> document(String id) {
         return database.read(() -> jdbc.query("SELECT " + COMMON_COLUMNS + ", d.original_text" + JOIN
                 + " WHERE d.document_id=?", (rs, row) -> map(rs, true).detail(), id).stream().findFirst());
+    }
+
+    public Optional<DocumentSummary> summary(String id) {
+        return database.read(() -> jdbc.query("SELECT " + COMMON_COLUMNS + JOIN
+                + " WHERE d.document_id=?", (rs, row) -> map(rs, false).summary(), id).stream().findFirst());
+    }
+
+    public DocumentSummary invalidate(String id, Instant when) {
+        return database.write(() -> {
+            jdbc.update("UPDATE document_record SET invalidated=true, invalidated_at=? "
+                    + "WHERE document_id=? AND invalidated=false", utc(when), id);
+            return jdbc.query("SELECT " + COMMON_COLUMNS + JOIN + " WHERE d.document_id=?",
+                            (rs, row) -> map(rs, false).summary(), id).stream().findFirst()
+                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,
+                            "DOCUMENT_NOT_FOUND", "文档不存在"));
+        });
+    }
+
+    public List<Candidate> candidatesAfter(String afterId, String channel, int limit, int timeoutSeconds) {
+        return database.readWithTimeout(() -> {
+            StringBuilder sql = new StringBuilder("SELECT document_id,vector_bytes,vector_version "
+                    + "FROM document_record WHERE vector_ready=true AND invalidated=false");
+            List<Object> args = new ArrayList<>();
+            if (channel != null) { sql.append(" AND channel=?"); args.add(channel); }
+            if (afterId != null) { sql.append(" AND document_id>?"); args.add(afterId); }
+            sql.append(" ORDER BY document_id LIMIT ?");
+            args.add(limit);
+            return jdbc.query(sql.toString(), (rs, row) -> new Candidate(rs.getString(1),
+                    rs.getBytes(2), rs.getString(3)), args.toArray());
+        }, timeoutSeconds);
+    }
+
+    public Map<String, DocumentDetail> countAndLoad(List<TopKSelector.Hit> hits,
+                                                     Runnable checkpoint, int timeoutSeconds) {
+        return database.writeWithTimeout(() -> {
+            List<String> ids = hits.stream().map(TopKSelector.Hit::documentId).sorted().toList();
+            Map<String, DocumentDetail> details = new HashMap<>();
+            for (String id : ids) {
+                checkpoint.run();
+                int updated = jdbc.update("UPDATE document_record SET hit_count=hit_count+1 "
+                        + "WHERE document_id=? AND vector_ready=true AND invalidated=false", id);
+                if (updated != 1) throw new IllegalStateException("Candidate changed during count transaction");
+                DocumentDetail detail = jdbc.query("SELECT " + COMMON_COLUMNS + ", d.original_text" + JOIN
+                                + " WHERE d.document_id=?", (rs, row) -> map(rs, true).detail(), id)
+                        .stream().findFirst().orElseThrow(() -> new IllegalStateException("Counted document missing"));
+                details.put(id, detail);
+            }
+            checkpoint.run(); // Before commit; never claim a committed count was rolled back.
+            return Map.copyOf(details);
+        }, timeoutSeconds);
     }
 
     public Optional<TaskView> task(UUID taskId) {

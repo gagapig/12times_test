@@ -112,6 +112,43 @@ public class DocumentTasks {
                 () -> new ApiException(HttpStatus.NOT_FOUND, "DOCUMENT_NOT_FOUND", "文档不存在")));
     }
 
+    public DocumentSummary invalidate(String documentId) {
+        requireDocumentId(documentId);
+        engine.requireReady();
+        try {
+            return retry.run(() -> invalidateUnderGate(documentId));
+        } catch (StorageFailure failure) {
+            if (failure.kind() == Kind.OUTCOME_UNKNOWN) {
+                try {
+                    var persisted = store.summary(documentId);
+                    if (persisted.isPresent() && persisted.get().invalidated()) return persisted.get();
+                } catch (StorageFailure lookupFailure) {
+                    engine.degrade(lookupFailure);
+                    throw unavailable(failure);
+                }
+            }
+            if (failure.kind() == Kind.UNAVAILABLE || failure.kind() == Kind.OUTCOME_UNKNOWN) engine.degrade(failure);
+            throw unavailable(failure);
+        }
+    }
+
+    private DocumentSummary invalidateUnderGate(String documentId) {
+        try {
+            if (!gate.write().tryLock(settings.getGateWait().toMillis(), TimeUnit.MILLISECONDS)) {
+                throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "CONCURRENCY_TIMEOUT", "写操作等待超时");
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "CONCURRENCY_TIMEOUT", "写操作被中断");
+        }
+        try {
+            engine.requireReady();
+            return store.invalidate(documentId, Instant.now());
+        } finally {
+            gate.write().unlock();
+        }
+    }
+
     public DocumentPage list(Map<String, String[]> parameters) {
         for (var entry : parameters.entrySet()) {
             if (!LIST_KEYS.contains(entry.getKey()) || entry.getValue().length != 1) {

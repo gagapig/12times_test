@@ -34,4 +34,14 @@ public class DocumentTaskController {
     public TaskView taskForDocument(@PathVariable String documentId) {
         return service.taskForDocument(documentId);
     }
+
+    @PutMapping("/documents/{documentId}/invalidation")
+    public DocumentSummary invalidate(@PathVariable String documentId,
+                                      @RequestBody(required = false) String body) {
+        if (body != null && !body.isEmpty()) {
+            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "INVALID_ARGUMENT", "失效接口不接受请求体");
+        }
+        return service.invalidate(documentId);
+    }
 }

@@ -18,13 +18,16 @@ public class DatabaseOperation {
 
     public DatabaseOperation(PlatformTransactionManager manager) { this.manager = manager; }
 
-    public <T> T write(Supplier<T> work) { return execute(work, false, false); }
-    public <T> T read(Supplier<T> work) { return execute(work, true, false); }
-    public <T> T snapshotRead(Supplier<T> work) { return execute(work, true, true); }
+    public <T> T write(Supplier<T> work) { return execute(work, false, false, 0); }
+    public <T> T read(Supplier<T> work) { return execute(work, true, false, 0); }
+    public <T> T snapshotRead(Supplier<T> work) { return execute(work, true, true, 0); }
+    public <T> T writeWithTimeout(Supplier<T> work, int seconds) { return execute(work, false, false, seconds); }
+    public <T> T readWithTimeout(Supplier<T> work, int seconds) { return execute(work, true, false, seconds); }
 
-    private <T> T execute(Supplier<T> work, boolean readOnly, boolean repeatableRead) {
+    private <T> T execute(Supplier<T> work, boolean readOnly, boolean repeatableRead, int timeoutSeconds) {
         var template = new TransactionTemplate(manager);
         template.setReadOnly(readOnly);
+        if (timeoutSeconds > 0) template.setTimeout(timeoutSeconds);
         if (repeatableRead) {
             template.setIsolationLevel(TransactionTemplate.ISOLATION_REPEATABLE_READ);
         }

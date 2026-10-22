@@ -4,9 +4,10 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import com.example.vectorsearch.task.TaskSettings;
+import com.example.vectorsearch.search.SearchSettings;
 
 @SpringBootApplication
-@EnableConfigurationProperties(TaskSettings.class)
+@EnableConfigurationProperties({TaskSettings.class, SearchSettings.class})
 public class VectorSearchApplication {
     public static void main(String[] args) {
         SpringApplication.run(VectorSearchApplication.class, args);

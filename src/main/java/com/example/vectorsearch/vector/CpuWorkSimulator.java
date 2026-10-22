@@ -6,14 +6,21 @@ import java.util.concurrent.CancellationException;
 /** Fixed CPU work; its checksum is observable but never influences the vector. */
 public final class CpuWorkSimulator {
     public long work(int rounds) {
+        return work(rounds, () -> { });
+    }
+
+    public long work(int rounds, Runnable checkpoint) {
         if (rounds < 0) {
             throw new IllegalArgumentException("rounds must not be negative");
         }
         MessageDigest digest = Vectorizer.sha256();
         byte[] state = new byte[32];
         for (int round = 0; round < rounds; round++) {
-            if ((round & 255) == 0 && Thread.currentThread().isInterrupted()) {
-                throw new CancellationException("CPU simulation interrupted");
+            if ((round & 255) == 0) {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw new CancellationException("CPU simulation interrupted");
+                }
+                checkpoint.run();
             }
             digest.update(state);
             digest.update((byte) (round >>> 24));

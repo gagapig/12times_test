@@ -10,6 +10,10 @@ public final class Vectorizer {
     public static final int DIMENSIONS = 256;
 
     public float[] vectorize(String text) {
+        return vectorize(text, () -> { });
+    }
+
+    public float[] vectorize(String text, Runnable checkpoint) {
         if (!TextValidator.isWellFormed(text)) {
             throw new IllegalArgumentException("Invalid text");
         }
@@ -18,8 +22,11 @@ public final class Vectorizer {
         int previous = -1;
         int seen = 0;
         for (int offset = 0; offset < text.length();) {
-            if ((seen++ & 255) == 0 && Thread.currentThread().isInterrupted()) {
-                throw new CancellationException("Vectorization interrupted");
+            if ((seen++ & 255) == 0) {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw new CancellationException("Vectorization interrupted");
+                }
+                checkpoint.run();
             }
             int codePoint = text.codePointAt(offset);
             offset += Character.charCount(codePoint);

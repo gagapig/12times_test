@@ -21,11 +21,16 @@ public class EmbeddingPipeline {
     }
 
     public EmbeddingResult embed(String text) {
+        return embed(text, () -> { });
+    }
+
+    public EmbeddingResult embed(String text, Runnable checkpoint) {
         if (!TextValidator.isWellFormed(text)) {
             throw new IllegalArgumentException("Invalid text");
         }
-        long checksum = simulator.work(simulationRounds);
-        return new EmbeddingResult(vectorizer.vectorize(text), checksum);
+        long checksum = simulator.work(simulationRounds, checkpoint);
+        checkpoint.run();
+        return new EmbeddingResult(vectorizer.vectorize(text, checkpoint), checksum);
     }
 
     public record EmbeddingResult(float[] vector, long simulationChecksum) {

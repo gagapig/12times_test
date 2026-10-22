@@ -8,7 +8,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 
-/** Contract only in P1; no search controller or algorithm is implemented yet. */
+/** Strict search request contract shared by the controller and validation tests. */
 public class SearchRequest {
     @ValidText
     private String text;
