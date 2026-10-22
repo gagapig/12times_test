@@ -6,6 +6,10 @@ import jakarta.validation.ConstraintValidatorContext;
 public class TextValidator implements ConstraintValidator<ValidText, String> {
     @Override
     public boolean isValid(String value, ConstraintValidatorContext context) {
+        return isWellFormed(value);
+    }
+
+    public static boolean isWellFormed(String value) {
         return value != null && value.length() <= 20_000 && UnicodeRules.hasValidSurrogates(value);
     }
 }
